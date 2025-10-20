@@ -1,0 +1,372 @@
+---
+title: "Tornadoes: Where & How It's Changing (by decade) 1960s- 2010s"
+author: "Austin Barrette"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.width=10, fig.height=6)
+library(tidyverse)
+library(lubridate)
+library(sf)
+library(ggplot2)
+library(viridis)
+library(ggthemes)
+library(ggpubr)
+```
+
+Reading and adding some initial columns to the dataset for initial visuals.
+
+```{r tornado data}
+#Path to the file on my desktop
+
+path <- "https://raw.githubusercontent.com/SaylorSwift/STAT-8416-Intro-to-Data-Science/abc69f42aa56a851b9e8e4ec4b2928a8fac0a344/us_tornado_dataset_1950_2021.csv"
+
+#Read CSV; explicitly define types to be robust
+
+t <- readr::read_csv(path, col_types = cols(
+yr = col_integer(), mn = col_integer(), dy = col_integer(),
+date = col_character(),
+mag = col_double(), inj = col_integer(), fat = col_integer(),
+slat = col_double(), slon = col_double(), elat = col_double(),
+elon = col_double(), len = col_double(), wid = col_double()
+))
+
+# Cleaned and augmented data
+t <- t %>%
+  mutate(
+    year = yr,
+    month = mo,
+    day = dy,
+    mag_clean = if_else(mag < 0, NA_real_, mag),
+    rating_era = if_else(date < ymd("2007-01-01"), "F", "EF"),
+    decade = case_when(
+      year >= 1950 & year <= 1959 ~ "1950s",
+      year >= 1960 & year <= 1969 ~ "1960s",
+      year >= 1970 & year <= 1979 ~ "1970s",
+      year >= 1980 & year <= 1989 ~ "1980s",
+      year >= 1990 & year <= 1999 ~ "1990s",
+      year >= 2000 & year <= 2009 ~ "2000s",
+      year >= 2010 & year <= 2019 ~ "2010s",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(slat), !is.na(slon)) %>%
+  filter(year >= 1950 & year <= 2019)
+
+#Only convert to sf when mapping is needed
+t_sf <- st_as_sf(t, coords = c("slon","slat"), crs = 4326, remove = FALSE)
+
+head(t)
+```
+
+**Which States Have Experienced the Most Tornadoes Since 1950?**
+
+To understand where tornadoes strike most frequently, I summarized all reported tornado events in the United States since 1950 and ranked states by total occurrences.
+The visualization below highlights the top 10 states with the highest historical tornado counts. The leading state appears in dark blue, while the remaining nine are shown in light gray. Each bar is labeled directly for quick comparison.
+
+
+```{r Top 10 States by Count of Tornados, echo=FALSE}
+tornado_state_counts <- t %>%
+group_by(st) %>%
+summarise(total_tornadoes = n()) %>%
+arrange(desc(total_tornadoes)) %>%
+slice_head(n = 10)
+
+top_state <- tornado_state_counts$st[1]
+
+ggplot(tornado_state_counts, aes(x = reorder(st, total_tornadoes), y = total_tornadoes, fill = st == top_state)) +
+geom_bar(stat = "identity", color = "grey30", width = 0.7) +
+geom_text(aes(label = total_tornadoes), hjust = -0.2, fontface = "bold") +
+scale_fill_manual(values = c("TRUE" = "#003f7d", "FALSE" = "grey80")) +
+coord_flip() +
+theme_minimal(base_size = 13) +
+theme(
+panel.grid = element_blank(),
+axis.title = element_blank(), # remove axis titles
+axis.text.x = element_blank(), # remove x axis text
+axis.ticks.x = element_blank(), # remove x axis ticks
+axis.text.y = element_text(face = "bold"),
+legend.position = "none",
+plot.title = element_text(hjust = 0.5, face = "bold") #center and bold the title
+) +
+labs(
+title = "Top 10 States by Count of Tornados (1950–2019)"
+)
+```
+
+**Has “Tornado Alley” Shifted Eastward?**
+
+Tornado Alley has traditionally referred to a region spanning Texas, Oklahoma, Kansas, and Nebraska — but recent studies suggest that tornado activity may be shifting eastward.
+To visualize this trend, I mapped all tornado occurrences from 1950 through the end of 2019 by decade, creating a density map for each time period.
+The brighter areas indicate higher concentrations of tornado reports. Comparing these maps side by side allows us to see whether tornado activity has migrated or expanded east over time.
+
+```{r Geographic Density of Tornado Occurrences by Decade, echo=FALSE}
+#Create U.S. map base
+us_states <- st_as_sf(maps::map("state", plot = FALSE, fill = TRUE))
+
+#Plot density heatmaps by decade
+ggplot() +
+geom_sf(data = us_states, fill = "white", color = "grey40") +
+stat_density_2d(
+data = t %>% filter(!is.na(decade)),
+aes(x = slon, y = slat, fill = after_stat(level)),
+geom = "polygon",
+contour = TRUE
+) +
+scale_fill_viridis_c(option = "plasma", direction = -1) +
+facet_wrap(~decade, ncol = 3) +
+coord_sf(xlim = c(-125, -65), ylim = c(25, 50), expand = FALSE) +
+theme_minimal(base_size = 12) +
+theme(
+panel.grid = element_blank(),
+strip.text = element_text(face = "bold"),
+axis.text = element_blank(),
+axis.title = element_blank(),
+axis.ticks = element_blank()
+) +
+labs(
+title = "Geographic Density of Tornado Occurrences by Decade (1960–2019)",
+fill = "Density"
+)
+
+```
+
+
+**Assigning States to Regions**
+
+To explore whether tornado hotspots are emerging in different parts of the country, each state was assigned to a geographic region.
+This allows tornado counts and intensities to be summarized and compared across West, Southwest, Midwest, Southeast, and Northeast regions.
+
+The mapping of states to regions is as follows:
+
+```{r Region Mapping, echo=FALSE}
+#Load Libraries
+library(dplyr)
+library(tidyr)
+library(knitr)
+
+#Updated Region Mapping
+region_map <- list(
+  West = c("CA", "NV", "OR", "WA", "ID", "MT", "WY", "CO", "UT", "AZ", "NM"),
+  Southwest = c("TX", "OK", "AR", "LA", "KS", "NE"),
+  Midwest = c("ND", "SD", "MN", "IA", "MO", "WI", "IL", "IN", "MI", "OH"),
+  Southeast = c("KY", "TN", "MS", "AL", "GA", "FL", "SC", "NC", "VA", "DC", "WV"),
+  Northeast = c("PA", "NY", "NJ", "MA", "CT", "RI", "NH", "VT", "ME", "MD", "DE"),
+  "Non Continental" = c("HI", "AK", "PR", "VI")
+)
+
+#Append Regions
+t <- t %>%
+  mutate(region = case_when(
+    st %in% region_map$West ~ "West",
+    st %in% region_map$Southwest ~ "Southwest",
+    st %in% region_map$Midwest ~ "Midwest",
+    st %in% region_map$Southeast ~ "Southeast",
+    st %in% region_map$Northeast ~ "Northeast",
+    st %in% region_map$`Non Continental` ~ "Non Continental"
+  ))
+
+#Create a table showing each region and the actual states/territories in the dataset
+region_table <- t %>%
+  group_by(region) %>%
+  summarise(states = paste(sort(unique(st)), collapse = ", ")) %>%
+  arrange(region)
+
+#Print as a table
+kable(region_table, col.names = c("Region", "States"), align = c("l", "l"))
+
+
+```
+
+This table presents the geographic setup for the analysis, showing exactly which states are grouped in each region.
+With this mapping, all subsequent visualizations by region are based on these groupings, enabling clear comparisons across decades and intensity levels.
+
+
+**Emerging Tornado Hotspots by Region**
+
+To determine whether tornado hotspots are shifting geographically, tornado occurrences were aggregated by region and decade.
+This allows us to observe trends over time and highlight areas where tornado frequency may be increasing, particularly in the Southeast and Midwest.
+
+The tornado counts for each region and decade are summarized in the dataset below, which will be visualized in a vertical bar chart.
+Each bar represents the total tornadoes in a region for a given decade, grouped by decade for easy comparison.
+
+
+```{r Tornado Counts by Region and Decade, echo=FALSE}
+#Recalculate tornado counts by region and decade using the updated region mapping
+region_counts <- t %>%
+  group_by(decade, region) %>%
+  summarise(total_tornadoes = n(), .groups = "drop") %>%
+  arrange(region, decade)
+
+#Ensure decades are in chronological order
+region_counts$decade <- factor(region_counts$decade,
+                               levels = c("1950s","1960s","1970s","1980s","1990s","2000s","2010s"))
+
+#Plot line chart
+ggplot(region_counts, aes(x = decade, y = total_tornadoes, group = region, color = region)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  geom_text(aes(label = total_tornadoes), vjust = -0.5, fontface = "bold") +
+  scale_color_brewer(palette = "Set2") +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    axis.title = element_blank(),
+    axis.text.x = element_text(face = "bold"),
+    axis.text.y = element_text(face = "bold"),
+    legend.title = element_blank(),
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  labs(title = "Tornado Counts by Region Across Decades 1950s through 2010s")
+
+```
+The data show a clear upward trend in reported tornado counts from the 1950s through the 2000s, rising from 4,739 in the 1950s to a peak of 12,721 in the 2000s, followed by a modest decline to 11,926 in the 2010s. The increases are particularly large between the 1950s–1960s and the 1980s–1990s, with the 1990s and 2000s each exceeding 12,000 tornadoes, indicating a sustained period of higher recorded activity compared with earlier decades.
+
+
+
+```{r Tornado Counts by Decade, echo=FALSE}
+#Calculate tornado counts by decade
+tor_counts <- t %>%
+  group_by(decade) %>%
+  summarise(total_tornadoes = n(), .groups = "drop") %>%
+  arrange(decade)
+
+#Ensure decades are in chronological order
+tor_counts$decade <- factor(tor_counts$decade,
+                               levels = c("1950s","1960s","1970s","1980s","1990s","2000s","2010s"))
+
+#Plot line chart
+ggplot(tor_counts, aes(x = decade, y = total_tornadoes, group = 1)) +
+  geom_line(aes(y = total_tornadoes),size = 1.2, color="#66C2A5FF" ) +
+  geom_point(aes(y = total_tornadoes),size = 3, color="#66C2A5FF") +
+  scale_color_brewer(palette = "Set2") +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    axis.title = element_blank(),
+    axis.text.x = element_text(face = "bold"),
+    axis.text.y = element_text(face = "bold"),
+    legend.title = element_blank(),
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  labs(title = "Tornado Counts by Decades Across 1950s through 2010s")
+
+```
+The injuries and fatalities plot shows a marked decline in fatalities from the 1950s peak of 1,420 to a low in the 1980s of 522, followed by relatively stable lower counts in the 1990s and 2000s and a rebound to 910 in the 2010s. Injuries follow a different pattern: they rise from 14,423 in the 1950s to a peak of 21,625 in the 1970s, then drop sharply in the 1980s and remain lower through the 2000s before increasing again to 10,901 in the 2010s.
+
+
+```{r Tornado Injuries and Fatalities by Decade, echo=FALSE}
+#Calculate tornado counts by decade
+inj_counts <- t %>%
+  group_by(decade) %>%
+  summarise(
+    total_fatalities = sum(fat, na.rm = TRUE),
+    total_injuries = sum(inj, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(cols = c(total_injuries, total_fatalities), names_to = "type", values_to = "count") %>%
+  mutate(type = str_replace_all(type, "_", " ")) %>%
+  arrange(decade)
+
+#Ensure decades are in chronological order
+region_counts$decade <- factor(region_counts$decade,
+                               levels = c("1950s","1960s","1970s","1980s","1990s","2000s","2010s"))
+
+#Plot line chart
+ggplot(inj_counts, aes(x = decade, y = count, group = type, color = type )) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  scale_color_manual(values = c(
+    "total injuries" = "#FFD92FFF",
+    "total fatalities" = "#FC8D62FF"
+  )) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    axis.title = element_blank(),
+    axis.text.x = element_text(face = "bold"),
+    axis.text.y = element_text(face = "bold"),
+    legend.title = element_blank(),
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  labs(title = "Tornado Injuries and Fatalities by Decades Across 1950s through 2010s")
+
+```
+The monthly series show a strong, consistent seasonal pattern across all decades with tornado activity concentrated in spring and early summer and a pronounced peak in May each decade. Winter months (December, January, February) consistently register the fewest tornadoes, while March–June account for the bulk of annual counts, confirming a clear and stable seasonality.
+
+
+```{r Tornado Counts by Month and Decade, echo=FALSE}
+#Recalculate tornado counts by month and decade
+month_counts <- t %>%
+  group_by(month, decade) %>%
+  summarise(total_tornadoes = n(), .groups = "drop") %>%
+  arrange(month, decade)
+
+#Ensure decades and month are in chronological order
+month_counts$decade <- factor(month_counts$decade,
+                               levels = c("1950s","1960s","1970s","1980s","1990s","2000s","2010s"))
+month_counts$month <- factor(month.abb[month_counts$month],
+                             levels = c('Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'))
+
+#Plot line chart
+ggplot(month_counts, aes(x = month, y = total_tornadoes, group = decade, color = decade)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  theme_minimal(base_size = 13) +
+  scale_color_brewer(palette = "Set2") +
+  theme(
+    panel.grid = element_blank(),
+    axis.title = element_blank(),
+    axis.text.x = element_text(face = "bold"),
+    axis.text.y = element_text(face = "bold"),
+    legend.title = element_blank(),
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  labs(title = "Monthly Tornado Counts by Decades")
+
+```
+
+```{r Average Magnitude by Month and Decade, echo=FALSE}
+#Recalculate magnitude by month and decade
+month_mag <- t %>%
+  group_by(month, decade) %>%
+  summarise(avg_mag = round(mean(mag_clean, na.rm = TRUE),1), .groups = "drop") %>%
+  arrange(month, decade)
+
+#Ensure decades and month are in chronological order
+month_mag$decade <- factor(month_counts$decade,
+                               levels = c("1950s","1960s","1970s","1980s","1990s","2000s","2010s"))
+month_mag$month <- factor(month.abb[month_counts$month],
+                             levels = c('Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'))
+
+#Plot line chart
+ggplot(month_mag, aes(x = month, y = avg_mag, group = decade, color = decade)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  theme_minimal(base_size = 13) +
+  scale_color_brewer(palette = "Set2") +
+  theme(
+    panel.grid = element_blank(),
+    axis.title = element_blank(),
+    axis.text.x = element_text(face = "bold"),
+    axis.text.y = element_text(face = "bold"),
+    legend.title = element_blank(),
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  labs(title = "Average Magnitude by Month and Decades")
+
+```
+
+
+
+
+
+
