@@ -3,24 +3,22 @@ import json
 import pandas as pd
 from datetime import datetime
 
-# --- CONFIGURATION ---
+# Fist time import data
 OUTPUT_FILE = 'raw_data.csv'
 START_YEAR = 2008
 END_YEAR = 2024
 
-# Series IDs (Modern "All Employees" Standard)
+# Series IDs 
 SERIES_MAPPING = {
     'LNS14000000': 'Unemployment Rate',
-    'CES0000000001': 'Employment Level',        # Total Nonfarm
-    'CUUR0000SA0': 'CPI',                     # CPI-U
-    'CES0500000003': 'Hourly Earnings',       # All Private Employees
-    'CES0500000002': 'Hours Worked'           # All Private Employees
+    'CES0000000001': 'Employment Level',
+    'CUUR0000SA0': 'CPI',
+    'CES0500000003': 'Hourly Earnings',
+    'CES0500000002': 'Hours Worked'
 }
 
 def fetch_bls_chunk(series_ids, start_year, end_year):
-    """Fetches a specific chunk of years from BLS without an API key."""
     headers = {'Content-type': 'application/json'}
-    # Removed "registrationkey" from payload
     data = json.dumps({
         "seriesid": series_ids,
         "startyear": str(start_year),
@@ -41,7 +39,6 @@ def fetch_bls_chunk(series_ids, start_year, end_year):
         return None
 
 def parse_bls_response(json_data):
-    """Parses nested JSON into a flat list of records."""
     records = []
     if not json_data or 'Results' not in json_data:
         return records
