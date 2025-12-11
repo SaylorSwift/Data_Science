@@ -6,7 +6,14 @@ from plotly.subplots import make_subplots
 # --- CONFIGURATION ---
 DATA_FILE = 'processed_data.csv'
 
-# --- 1. LOAD DATA ---
+# --- 1. SETUP & STATE ---
+st.set_page_config(page_title="US Economic Dashboard", layout="wide")
+
+# Initialize Session State for Page Navigation
+if 'page_view' not in st.session_state:
+    st.session_state.page_view = "Wage vs Inflation" # Default Start Page
+
+# --- 2. LOAD DATA ---
 @st.cache_data
 def load_data():
     try:
@@ -20,46 +27,53 @@ def load_data():
 
 df = load_data()
 
-# --- 2. PAGE SETTINGS ---
-st.set_page_config(page_title="US Economic Dashboard", layout="wide")
-st.title("US Macro Economic Dashboard")
+# --- 3. CUSTOM CSS (Just for Button Width) ---
+# Keeping only this small styling to make sidebar buttons look like full-width tabs
+st.markdown("""
+<style>
+    .stButton button {
+        width: 100%;
+        text-align: left;
+        border-radius: 8px;
+        height: 3em;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 if df is None:
     st.error(f"Data file '{DATA_FILE}' not found. Please run the data pipeline first.")
     st.stop()
 
-# --- 3. SIDEBAR: MONTH-YEAR SELECTION ---
-st.sidebar.header("⚙️ Dashboard Settings")
+st.title("US Macro Economic Dashboard")
 
-# Create a list of all available months
+# --- 4. SIDEBAR: NAVIGATION & SETTINGS ---
+st.sidebar.header("Navigation")
+
+# Callback function to change the page
+def set_page(page_name):
+    st.session_state.page_view = page_name
+
+# Navigation Buttons
+st.sidebar.button("Wage vs Inflation", on_click=set_page, args=("Wage vs Inflation",))
+st.sidebar.button("Work Hours & Pay", on_click=set_page, args=("Work Hours & Pay",))
+st.sidebar.button("Employment Market", on_click=set_page, args=("Employment Market",))
+
+st.sidebar.markdown("---")
+st.sidebar.header("Time Settings")
+
+# Date Selection Logic
 available_months = df['Month_Label'].tolist() 
-
-# Helper to find default indices
 try:
-    default_start_index = available_months.index("Jan 2020")
+    default_start = available_months.index("Jan 2020")
 except ValueError:
-    default_start_index = len(available_months) - 13 
+    default_start = len(available_months) - 13
 
-# --- CHANGED: Stacked Dropdowns (Vertical) ---
-st.sidebar.markdown("**Select Time Range**")
+start_str = st.sidebar.selectbox("Start Month", available_months, index=default_start)
+end_str = st.sidebar.selectbox("End Month", available_months, index=len(available_months)-1)
 
-start_month_str = st.sidebar.selectbox(
-    "Start Month", 
-    available_months, 
-    index=default_start_index
-)
+start_date = df[df['Month_Label'] == start_str]['Date'].values[0]
+end_date = df[df['Month_Label'] == end_str]['Date'].values[0]
 
-end_month_str = st.sidebar.selectbox(
-    "End Month", 
-    available_months, 
-    index=len(available_months) - 1 
-)
-
-# Convert the string selections back to actual Date objects
-start_date = df[df['Month_Label'] == start_month_str]['Date'].values[0]
-end_date = df[df['Month_Label'] == end_month_str]['Date'].values[0]
-
-# Logic Check
 if start_date >= end_date:
     st.error("Start Date must be before End Date.")
     st.stop()
@@ -68,145 +82,105 @@ if start_date >= end_date:
 mask = (df['Date'] >= start_date) & (df['Date'] <= end_date)
 df_filtered = df.loc[mask].copy()
 
-if df_filtered.empty:
-    st.warning("No data found for this range.")
-    st.stop()
 
-# --- 4. TOP METRICS (KPIs) ---
-start_row = df_filtered.iloc[0]
-end_row = df_filtered.iloc[-1]
+# --- 5. TOP SECTION: INDICATORS ---
+start_row, end_row = df_filtered.iloc[0], df_filtered.iloc[-1]
 
-# --- CHANGED: Correct Delta Calculation ---
-# 1. Unemployment: Point Difference
+# Calculations
 unemp_delta = end_row['Unemployment Rate'] - start_row['Unemployment Rate']
-
-# 2. Inflation: Percent Growth & Index Point Change
 cpi_growth = ((end_row['CPI'] - start_row['CPI']) / start_row['CPI']) * 100
-cpi_delta_val = end_row['CPI'] - start_row['CPI']
-
-# 3. Nominal Wages: Percent Growth & Dollar Amount Change
+cpi_delta = end_row['CPI'] - start_row['CPI']
 wage_growth = ((end_row['Weekly Earnings'] - start_row['Weekly Earnings']) / start_row['Weekly Earnings']) * 100
-wage_delta_val = end_row['Weekly Earnings'] - start_row['Weekly Earnings']
+wage_delta = end_row['Weekly Earnings'] - start_row['Weekly Earnings']
+real_growth = ((end_row['Real Weekly Earnings'] - start_row['Real Weekly Earnings']) / start_row['Real Weekly Earnings']) * 100
+real_delta = end_row['Real Weekly Earnings'] - start_row['Real Weekly Earnings']
 
-# 4. Real Wages: Percent Growth & Dollar Amount Change
-real_wage_growth = ((end_row['Real Weekly Earnings'] - start_row['Real Weekly Earnings']) / start_row['Real Weekly Earnings']) * 100
-real_wage_delta_val = end_row['Real Weekly Earnings'] - start_row['Real Weekly Earnings']
+st.markdown(f"### ⏱️ Period: {start_str} — {end_str}")
+k1, k2, k3, k4 = st.columns(4)
 
-st.markdown(f"### 📊 Changes from {start_month_str} to {end_month_str}")
-kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-
-kpi1.metric(
-    "Unemployment Rate", 
-    f"{end_row['Unemployment Rate']}%", 
-    f"{unemp_delta:+.1f} pts", 
-    delta_color="inverse"
-)
-kpi2.metric(
-    "Total Inflation", 
-    f"{cpi_growth:.1f}%", 
-    f"{cpi_delta_val:+.1f} Index Pts", 
-    delta_color="inverse"
-)
-kpi3.metric(
-    "Nominal Wage Growth", 
-    f"{wage_growth:.1f}%", 
-    f"{wage_delta_val:+.2f} /wk",
-    delta_color="normal"
-)
-kpi4.metric(
-    "Real Purchasing Power", 
-    f"{real_wage_growth:.1f}%", 
-    f"{real_wage_delta_val:+.2f} (Adj)", 
-    delta_color="normal"
-)
+k1.metric("Unemployment", f"{end_row['Unemployment Rate']}%", f"{unemp_delta:+.1f} pts", delta_color="inverse")
+k2.metric("Total Inflation", f"{cpi_growth:.1f}%", f"{cpi_delta:+.1f} Index Pts", delta_color="inverse")
+k3.metric("Nominal Wages", f"{wage_growth:.1f}%", f"{wage_delta:+.2f} /wk", delta_color="normal")
+k4.metric("Real Wages", f"{real_growth:.1f}%", f"{real_delta:+.2f} (Adj)", delta_color="normal")
 
 st.divider()
 
-# --- 5. CHART 1: THE RACE ---
-st.subheader("Wages Growth vs. Inflation")
-st.markdown(f"Comparing cumulative growth starting from 0% in **{start_month_str}**.")
+# --- 6. BOTTOM SECTION: VISUALS ---
 
-base_cpi = start_row['CPI']
-base_wage = start_row['Weekly Earnings']
-df_filtered['Cumulative Inflation'] = ((df_filtered['CPI'] - base_cpi) / base_cpi) * 100
-df_filtered['Cumulative Wages'] = ((df_filtered['Weekly Earnings'] - base_wage) / base_wage) * 100
+# PAGE 1: WAGE VS INFLATION
+if st.session_state.page_view == "Wage vs Inflation":
+    st.subheader("The Race: Wages vs. Inflation")
+    st.markdown("Comparing cumulative growth from your start date (Base = 0%).")
+    
+    # Rebase Logic
+    base_cpi = start_row['CPI']
+    base_wage = start_row['Weekly Earnings']
+    df_filtered['CPI_Growth'] = ((df_filtered['CPI'] - base_cpi) / base_cpi) * 100
+    df_filtered['Wage_Growth'] = ((df_filtered['Weekly Earnings'] - base_wage) / base_wage) * 100
 
-race_metrics = st.multiselect(
-    "Select Metrics:", ["Inflation (CPI)", "Wage Growth"],
-    default=["Inflation (CPI)", "Wage Growth"], key="race"
-)
+    selection = st.pills("Metrics:", ["Inflation (CPI)", "Wage Growth"], 
+                         default=["Inflation (CPI)", "Wage Growth"], selection_mode="multi")
 
-fig_race = go.Figure()
+    fig = go.Figure()
+    if "Inflation (CPI)" in selection:
+        fig.add_trace(go.Scatter(x=df_filtered['Date'], y=df_filtered['CPI_Growth'], 
+                                 name='Inflation', line=dict(color='#ff4b4b', width=3)))
+    if "Wage Growth" in selection:
+        fig.add_trace(go.Scatter(x=df_filtered['Date'], y=df_filtered['Wage_Growth'], 
+                                 name='Wage Growth', line=dict(color='#2bd666', width=3)))
+        
+    if len(selection) == 2:
+        fig.add_trace(go.Scatter(x=df_filtered['Date'], y=df_filtered['Wage_Growth'], 
+                                 fill='tonexty', fillcolor='rgba(43, 214, 102, 0.1)', 
+                                 mode='none', showlegend=False, hoverinfo='skip'))
 
-if "Inflation (CPI)" in race_metrics:
-    fig_race.add_trace(go.Scatter(
-        x=df_filtered['Date'], y=df_filtered['Cumulative Inflation'],
-        mode='lines', name='Inflation (CPI)', line=dict(color='#ff4b4b', width=3)
-    ))
+    fig.update_layout(yaxis_title="Cumulative Growth (%)", hovermode="x unified", height=500)
+    st.plotly_chart(fig, use_container_width=True)
 
-if "Wage Growth" in race_metrics:
-    fig_race.add_trace(go.Scatter(
-        x=df_filtered['Date'], y=df_filtered['Cumulative Wages'],
-        mode='lines', name='Wage Growth', line=dict(color='#2bd666', width=3)
-    ))
+# PAGE 2: WORK HOURS & PAY
+elif st.session_state.page_view == "Work Hours & Pay":
+    st.subheader("Labor Inputs: Hours & Pay")
+    st.markdown("Comparing Hourly Rates (Left Axis) vs Weekly Hours (Right Axis).")
+    
+    selection = st.pills("Metrics:", ["Hourly Earnings ($)", "Weekly Hours"], 
+                         default=["Hourly Earnings ($)", "Weekly Hours"], selection_mode="multi")
 
-if len(race_metrics) == 2:
-    fig_race.add_trace(go.Scatter(
-        x=df_filtered['Date'], y=df_filtered['Cumulative Wages'],
-        fill='tonexty', fillcolor='rgba(43, 214, 102, 0.1)',
-        mode='none', showlegend=False, hoverinfo='skip'
-    ))
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-fig_race.update_layout(yaxis_title="Cumulative Growth (%)", hovermode="x unified")
-st.plotly_chart(fig_race, use_container_width=True)
+    if "Hourly Earnings ($)" in selection:
+        fig.add_trace(go.Scatter(x=df_filtered['Date'], y=df_filtered['Hourly Earnings'], 
+                                 name="Hourly Rate ($)", line=dict(color='#3498db', width=3)), secondary_y=False)
+        
+    if "Weekly Hours" in selection:
+        fig.add_trace(go.Scatter(x=df_filtered['Date'], y=df_filtered['Hours Worked'], 
+                                 name="Weekly Hours", line=dict(color='#9b59b6', width=3, dash='dot')), secondary_y=True)
 
-# --- 6. CHART 2: LABOR COMPONENTS ---
-st.subheader("Labor Components")
-col_left, col_right = st.columns(2)
+    fig.update_yaxes(title_text="Hourly Rate ($)", secondary_y=False, showgrid=True)
+    fig.update_yaxes(title_text="Hours Worked", secondary_y=True, showgrid=False)
+    fig.update_layout(hovermode="x unified", height=500)
+    st.plotly_chart(fig, use_container_width=True)
 
-with col_left:
-    st.markdown("**Hourly Earnings ($)**")
-    if st.checkbox("Show Hourly Earnings", value=True):
-        fig_h = go.Figure()
-        fig_h.add_trace(go.Scatter(
-            x=df_filtered['Date'], y=df_filtered['Hourly Earnings'],
-            line=dict(color='#3498db', width=2)
-        ))
-        fig_h.update_layout(height=300, margin=dict(l=10,r=10,t=10,b=10))
-        st.plotly_chart(fig_h, use_container_width=True)
+# PAGE 3: EMPLOYMENT MARKET
+elif st.session_state.page_view == "Employment Market":
+    st.subheader("Employment Status")
+    st.markdown("Total Employment (Left Axis) vs Unemployment Rate (Right Axis).")
+    
+    selection = st.pills("Metrics:", ["Total Jobs", "Unemployment Rate"], 
+                         default=["Total Jobs", "Unemployment Rate"], selection_mode="multi")
 
-with col_right:
-    st.markdown("**Weekly Hours Worked**")
-    if st.checkbox("Show Hours Worked", value=True):
-        fig_w = go.Figure()
-        fig_w.add_trace(go.Scatter(
-            x=df_filtered['Date'], y=df_filtered['Hours Worked'],
-            line=dict(color='#9b59b6', width=2)
-        ))
-        fig_w.update_layout(height=300, margin=dict(l=10,r=10,t=10,b=10))
-        st.plotly_chart(fig_w, use_container_width=True)
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-# --- 7. CHART 3: EMPLOYMENT STATUS ---
-st.subheader("Employment Status")
-labor_metrics = st.multiselect(
-    "Select Metrics:", ["Unemployment Rate", "Total Employment"],
-    default=["Unemployment Rate", "Total Employment"], key="labor"
-)
+    if "Total Jobs" in selection:
+        fig.add_trace(go.Scatter(x=df_filtered['Date'], y=df_filtered['Employment Level'], 
+                                 name="Total Jobs (000s)", fill='tozeroy', 
+                                 line=dict(color='#34495e')), secondary_y=False)
 
-fig_labor = make_subplots(specs=[[{"secondary_y": True}]])
+    if "Unemployment Rate" in selection:
+        fig.add_trace(go.Scatter(x=df_filtered['Date'], y=df_filtered['Unemployment Rate'], 
+                                 name="Unemployment Rate (%)", 
+                                 line=dict(color='#e74c3c', width=3)), secondary_y=True)
 
-if "Total Employment" in labor_metrics:
-    fig_labor.add_trace(
-        go.Scatter(x=df_filtered['Date'], y=df_filtered['Employment Level']/1000, name="Total Jobs",
-                   line=dict(color='#34495e', width=3)), secondary_y=False
-    )
-
-if "Unemployment Rate" in labor_metrics:
-    fig_labor.add_trace(
-        go.Scatter(x=df_filtered['Date'], y=df_filtered['Unemployment Rate'], name="Unemployment %",
-                   line=dict(color='#e74c3c', width=3, dash='dot')), secondary_y=True
-    )
-
-fig_labor.update_yaxes(title_text="Jobs (MM)", secondary_y=False, showgrid=False)
-fig_labor.update_yaxes(title_text="Unemployment (%)", secondary_y=True, showgrid=False)
-st.plotly_chart(fig_labor, use_container_width=True)
+    fig.update_yaxes(title_text="Total Jobs", secondary_y=False, showgrid=True)
+    fig.update_yaxes(title_text="Unemployment Rate (%)", secondary_y=True, showgrid=False)
+    fig.update_layout(hovermode="x unified", height=500)
+    st.plotly_chart(fig, use_container_width=True)
