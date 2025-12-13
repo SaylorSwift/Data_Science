@@ -1,6 +1,8 @@
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import os
+import time
 
 #title
 st.set_page_config(layout="wide")
@@ -17,21 +19,24 @@ def load_data():
 
 df = load_data()
 
+file_timestamp = os.path.getmtime('data.csv')
+refreshed_date = time.strftime('%B %d, %Y', time.localtime(file_timestamp))
+
 #sidebar
-st.sidebar.header("Navigation")
+st.sidebar.header("🧭 Navigation")
 
 #switch between pages
 def set_page(page_name):
     st.session_state.page_view = page_name
 
 #add buttons
-st.sidebar.button("Employment Statistics", on_click = set_page, args = ("Employment Statistics",))
-st.sidebar.button("Wage Growth vs Inflation", on_click = set_page, args = ("Wage Growth vs Inflation",))
-st.sidebar.button("Work Hours & Pay", on_click = set_page, args = ("Work Hours & Pay",))
+st.sidebar.button("💼 Employment Statistics", on_click = set_page, args = ("Employment Statistics",))
+st.sidebar.button("📈 Wage Growth vs Inflation", on_click = set_page, args = ("Wage Growth vs Inflation",))
+st.sidebar.button("💵 Work Hours & Pay", on_click = set_page, args = ("Work Hours & Pay",))
 
 #time slider
 st.sidebar.markdown("---")
-st.sidebar.header("Time Settings")
+st.sidebar.header("📅 Date Range")
 
 min_date = df["Date"].min().date()
 max_date = df["Date"].max().date()
@@ -44,6 +49,12 @@ start_date, end_date = st.sidebar.slider(
     format="MMM YYYY" 
 )
 start_date = start_date.replace(day=1)
+
+file_timestamp = os.path.getmtime('data.csv')
+refreshed_date = time.strftime('%B %d, %Y', time.localtime(file_timestamp))
+
+st.sidebar.markdown("---")
+st.sidebar.caption(f"Dashboard last updated on {refreshed_date}")
 
 #filtered data
 df_plot = df.query(("Date >= @start_date and Date <= @end_date")).copy()
@@ -73,7 +84,7 @@ adjhr_growth = round((adjhr - start_row["Hourly Earnings"]) / start_row["Hourly 
 fig = go.Figure()
 
 if st.session_state.page_view == "Employment Statistics":
-    st.markdown(f"## Employment Statistics ({start_date.strftime('%b %Y')} — {end_date.strftime('%b %Y')})")
+    st.markdown(f"## 💼 Employment Statistics ({start_date.strftime('%b %Y')} — {end_date.strftime('%b %Y')})")
 
     k1, k2 = st.columns(2)
     k1.metric("Employment", f"{round(end_row['Employment Level'] / 1000, 1):,}M", f"{emp_growth:,}k", delta_color = 'normal')
@@ -118,7 +129,7 @@ if st.session_state.page_view == "Employment Statistics":
 
 
 elif st.session_state.page_view == "Wage Growth vs Inflation":
-    st.markdown(f"## Wage Growth vs Inflation ({start_date.strftime('%b %Y')} — {end_date.strftime('%b %Y')})")
+    st.markdown(f"## 📈 Wage Growth vs Inflation ({start_date.strftime('%b %Y')} — {end_date.strftime('%b %Y')})")
 
     k1, k2 = st.columns(2)
     k1.metric("Est. Weekly Wage", f"${round(end_row['Weekly Income'],1):,}", f"{wage_growth:,}%", delta_color = 'normal')
@@ -164,11 +175,11 @@ elif st.session_state.page_view == "Wage Growth vs Inflation":
 
 
 elif st.session_state.page_view == "Work Hours & Pay":
-    st.markdown(f"## Work Hours & Pay ({start_date.strftime('%b %Y')} — {end_date.strftime('%b %Y')})")
+    st.markdown(f"## 💵 Work Hours & Pay ({start_date.strftime('%b %Y')} — {end_date.strftime('%b %Y')})")
 
     k1, k2 = st.columns(2)
     k1.metric("Hourly Earnings", f"${round(end_row['Hourly Earnings'],1):,}", f"{hr_growth:,}%", delta_color = 'normal')
-    k2.metric("Avg. Hourly Earnings", f"${round(adjhr,1):,}", f"{adjhr_growth}%", delta_color = 'normal')
+    k2.metric("Adj. Hourly Earnings", f"${round(adjhr,1):,}", f"{adjhr_growth}%", delta_color = 'normal')
 
     selection = st.pills("", ['Hourly Earnings', "Adj. Hourly Earnings", 'Hours Worked'], 
                          default=['Hourly Earnings',"Adj. Hourly Earnings", 'Hours Worked'], selection_mode="multi")
