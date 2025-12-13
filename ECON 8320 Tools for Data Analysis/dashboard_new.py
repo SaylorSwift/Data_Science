@@ -46,7 +46,7 @@ start_date, end_date = st.sidebar.slider(
 start_date = start_date.replace(day=1)
 
 #filtered data
-df_plot = df.query(("Date > = @start_date and Date < = @end_date")).copy()
+df_plot = df.query(("Date >= @start_date and Date <= @end_date")).copy()
 
 #base metrics index
 start_row, end_row = df_plot.iloc[0], df_plot.iloc[-1]
