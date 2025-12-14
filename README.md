@@ -6,7 +6,7 @@ Stat 8426 Data Visualization Final Project. [View Full PDF Report](STAT%208426%2
 
 ---
 
-Econ 8320 Tools for Data Analysis Semester Project. [View Dashboard Code](ECON%208320%20Tools%20for%20Data%20Analysis)
+Econ 8320 Tools for Data Analysis Semester Project. [View Dashboard](https://econ8320-semester-project-ahgzis6ufrb6bf2jebk4mp.streamlit.app/)
 
 ![Employment Statistics](ECON%208320%20Tools%20for%20Data%20Analysis/screenshots/Employment%20Stats.jpeg)
 
